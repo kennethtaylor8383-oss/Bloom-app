@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { COUNTRIES, CATEGORIES, getTariffRate } from '../data/tariffs.js';
+import { lookupHTSCategory, describeHTSChapter } from '../data/htsLookup.js';
 import { fmt } from '../utils/calc.js';
 
 const EMPTY = {
@@ -13,6 +14,7 @@ const EMPTY = {
 
 export default function ItemForm({ onSave, onCancel, initial }) {
   const [form, setForm] = useState(initial ?? EMPTY);
+  const [htsHint, setHtsHint] = useState(null); // { category, description } from HTS lookup
 
   const rate = getTariffRate(form.country, form.category);
   const unitCost = parseFloat(form.unitCost) || 0;
@@ -22,6 +24,25 @@ export default function ItemForm({ onSave, onCancel, initial }) {
 
   function set(field, value) {
     setForm(prev => ({ ...prev, [field]: value }));
+  }
+
+  function handleHtsBlur(e) {
+    const code = e.target.value.trim();
+    if (!code) { setHtsHint(null); return; }
+    const detectedCategory = lookupHTSCategory(code);
+    if (detectedCategory && detectedCategory !== form.category) {
+      const description = describeHTSChapter(code);
+      setHtsHint({ category: detectedCategory, description });
+    } else {
+      setHtsHint(null);
+    }
+  }
+
+  function applyHtsCategory() {
+    if (htsHint) {
+      set('category', htsHint.category);
+      setHtsHint(null);
+    }
   }
 
   function handleSubmit(e) {
@@ -49,15 +70,26 @@ export default function ItemForm({ onSave, onCancel, initial }) {
         </div>
 
         <div className="form-group">
-          <label className="form-label" htmlFor="htsCode">HTS Code <span className="form-optional">(optional)</span></label>
+          <label className="form-label" htmlFor="htsCode">
+            HTS Code <span className="form-optional">(optional — auto-detects category)</span>
+          </label>
           <input
             id="htsCode"
             className="form-input"
             type="text"
             placeholder="e.g. 8542.31.0001"
             value={form.htsCode}
-            onChange={e => set('htsCode', e.target.value)}
+            onChange={e => { set('htsCode', e.target.value); setHtsHint(null); }}
+            onBlur={handleHtsBlur}
           />
+          {htsHint && (
+            <div className="hts-hint">
+              <span>Detected: <strong>{htsHint.description}</strong></span>
+              <button type="button" className="hts-hint-btn" onClick={applyHtsCategory}>
+                Apply category →
+              </button>
+            </div>
+          )}
         </div>
 
         <div className="form-group">
@@ -122,7 +154,6 @@ export default function ItemForm({ onSave, onCancel, initial }) {
         </div>
       </div>
 
-      {/* Live preview */}
       {isValid && (
         <div className="form-preview">
           <div className="form-preview-row">
@@ -148,9 +179,7 @@ export default function ItemForm({ onSave, onCancel, initial }) {
 
       <div className="form-actions">
         {onCancel && (
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>
-            Cancel
-          </button>
+          <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
         )}
         <button type="submit" className="btn btn-primary" disabled={!isValid}>
           Add Part to BOM

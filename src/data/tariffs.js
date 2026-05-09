@@ -241,6 +241,57 @@ export const ALTERNATIVES = {
   },
 };
 
+// Approximate tariff rates from ~October 2024 (pre-"Liberation Day" escalation).
+// Used to generate tariff change alerts for tracked items.
+// China Section 301 rates were ~25% on most goods before April 2025.
+// Most other countries had 0% reciprocal tariffs before April 2025.
+const PREVIOUS_RATES = {
+  china: {
+    electronics:  25, steel_metals: 25, machinery:    25, auto_parts:   25,
+    textiles:     25, chemicals:    25, furniture:    25, medical:      0,
+    food_ag:       0, general:      25,
+  },
+  mexico:      { electronics: 0, steel_metals: 25, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  canada:      { electronics: 0, steel_metals: 25, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  vietnam:     { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  india:       { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  taiwan:      { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  south_korea: { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  japan:       { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  thailand:    { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  eu:          { electronics: 0, steel_metals: 25, machinery: 0, auto_parts: 25, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  brazil:      { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  malaysia:    { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  indonesia:   { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+  usa:         { electronics: 0, steel_metals: 0, machinery: 0, auto_parts: 0, textiles: 0, chemicals: 0, furniture: 0, medical: 0, food_ag: 0, general: 0 },
+};
+
+// Returns alert objects for items whose tariff rate changed since Oct 2024.
+export function getTariffAlerts(items) {
+  const seen = new Set();
+  const alerts = [];
+  for (const item of items) {
+    const key = `${item.country}:${item.category}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const prev = PREVIOUS_RATES[item.country]?.[item.category];
+    const curr = getTariffRate(item.country, item.category);
+    if (prev === undefined || prev === curr) continue;
+    alerts.push({
+      key,
+      country: item.country,
+      countryLabel: COUNTRIES[item.country]?.label ?? item.country,
+      flag: COUNTRIES[item.country]?.flag ?? '',
+      category: item.category,
+      categoryLabel: CATEGORIES[item.category]?.label ?? item.category,
+      prevRate: prev,
+      currRate: curr,
+      direction: curr > prev ? 'up' : 'down',
+    });
+  }
+  return alerts.sort((a, b) => (b.currRate - b.prevRate) - (a.currRate - a.prevRate));
+}
+
 export function getAlternatives(country, category) {
   const alts = ALTERNATIVES[country]?.[category] ?? ALTERNATIVES.china?.[category] ?? [];
   return alts.slice(0, 4).map(c => ({
