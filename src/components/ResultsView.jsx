@@ -2,7 +2,89 @@ import { useState } from 'react';
 import RiskBadge from './RiskBadge.jsx';
 import LockedFeature from './LockedFeature.jsx';
 import { calcTotals, calcWhatIf, fmt } from '../utils/calc.js';
-import { COUNTRIES, CATEGORIES, getAlternatives } from '../data/tariffs.js';
+import { COUNTRIES, CATEGORIES, getAlternatives, getTariffAlerts } from '../data/tariffs.js';
+
+// ── Share button ───────────────────────────────────────────────────────────
+
+function ShareButton({ items, isPro, onShowPricing }) {
+  const [copied, setCopied] = useState(false);
+
+  function handleShare() {
+    if (!isPro) { onShowPricing('feature'); return; }
+    try {
+      const stripped = items.map(({ id, partName, htsCode, country, category, unitCost, annualVolume }) =>
+        ({ partName, htsCode, country, category, unitCost, annualVolume })
+      );
+      const encoded = btoa(JSON.stringify(stripped));
+      const url = `${window.location.origin}${window.location.pathname}#share=${encoded}`;
+      navigator.clipboard.writeText(url).then(() => {
+        setCopied(true);
+        setTimeout(() => setCopied(false), 2500);
+      });
+    } catch {}
+  }
+
+  return (
+    <button className={`btn ${isPro ? 'btn-outline' : 'btn-outline'}`} onClick={handleShare}>
+      {isPro ? (copied ? '✓ Link Copied!' : '🔗 Share Results') : '🔒 Share'}
+    </button>
+  );
+}
+
+// ── Tariff alerts panel ────────────────────────────────────────────────────
+
+function AlertsPanel({ items, isPro, onShowPricing }) {
+  const alerts = getTariffAlerts(items);
+
+  if (!isPro) {
+    return (
+      <LockedFeature onUnlock={() => onShowPricing('feature')} label="Unlock Tariff Change Alerts">
+        <div className="alerts-placeholder">
+          {[1, 2].map(i => (
+            <div key={i} className="alert-row alert-row-placeholder">
+              <span className="alert-flag">🏴</span>
+              <div className="alert-body">
+                <span className="alert-title">Country · Category</span>
+                <span className="alert-rates">—% → —%</span>
+              </div>
+              <span className="alert-chip alert-chip-up">↑ —%</span>
+            </div>
+          ))}
+        </div>
+      </LockedFeature>
+    );
+  }
+
+  if (alerts.length === 0) {
+    return (
+      <div className="alerts-empty">
+        <span>✓</span> No rate changes detected for your tracked parts since October 2024.
+      </div>
+    );
+  }
+
+  return (
+    <div className="alerts-list">
+      {alerts.map(a => (
+        <div key={a.key} className={`alert-row ${a.direction === 'up' ? 'alert-row-up' : 'alert-row-down'}`}>
+          <span className="alert-flag">{a.flag}</span>
+          <div className="alert-body">
+            <span className="alert-title">{a.countryLabel} · {a.categoryLabel}</span>
+            <span className="alert-rates">{a.prevRate}% → {a.currRate}%</span>
+          </div>
+          <div className="alert-right">
+            <span className={`alert-chip ${a.direction === 'up' ? 'alert-chip-up' : 'alert-chip-down'}`}>
+              {a.direction === 'up' ? '↑' : '↓'} {Math.abs(a.currRate - a.prevRate)}pp
+            </span>
+            <span className="alert-since">since Oct 2024</span>
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── Sub-components ─────────────────────────────────────────────────────────
 
 function SummaryCard({ label, value, sub, accent }) {
   return (
@@ -15,19 +97,13 @@ function SummaryCard({ label, value, sub, accent }) {
 }
 
 function RiskMeter({ pct, risk }) {
-  const width = Math.min(pct, 100);
   return (
     <div className="risk-meter">
       <div className="risk-meter-track">
-        <div
-          className={`risk-meter-fill risk-meter-${risk}`}
-          style={{ width: `${width}%` }}
-        />
+        <div className={`risk-meter-fill risk-meter-${risk}`} style={{ width: `${Math.min(pct, 100)}%` }} />
       </div>
       <div className="risk-meter-labels">
-        <span>0%</span>
-        <span>50%</span>
-        <span>100%+</span>
+        <span>0%</span><span>50%</span><span>100%+</span>
       </div>
     </div>
   );
@@ -35,9 +111,8 @@ function RiskMeter({ pct, risk }) {
 
 function WhatIfRow({ item, isPro, onShowPricing }) {
   const [altCountry, setAltCountry] = useState(item.country);
-  const original = item;
   const alternate = calcWhatIf(item, altCountry);
-  const savings = original.annualTariffCost - alternate.annualTariffCost;
+  const savings = item.annualTariffCost - alternate.annualTariffCost;
 
   if (!isPro) {
     return (
@@ -56,17 +131,13 @@ function WhatIfRow({ item, isPro, onShowPricing }) {
     <tr className="whatif-row">
       <td>{item.partName}</td>
       <td>
-        <select
-          className="form-select form-select-sm"
-          value={altCountry}
-          onChange={e => setAltCountry(e.target.value)}
-        >
+        <select className="form-select form-select-sm" value={altCountry} onChange={e => setAltCountry(e.target.value)}>
           {Object.entries(COUNTRIES).map(([k, { label, flag }]) => (
             <option key={k} value={k}>{flag} {label}</option>
           ))}
         </select>
       </td>
-      <td>{fmt.compact(original.annualTariffCost)}</td>
+      <td>{fmt.compact(item.annualTariffCost)}</td>
       <td>{fmt.compact(alternate.annualTariffCost)}</td>
       <td className={savings > 0 ? 'text-success' : savings < 0 ? 'text-danger' : ''}>
         {savings > 0 ? `Save ${fmt.compact(savings)}` : savings < 0 ? `+${fmt.compact(Math.abs(savings))}` : '—'}
@@ -75,11 +146,9 @@ function WhatIfRow({ item, isPro, onShowPricing }) {
   );
 }
 
-function AltSourcingRow({ item, isPro, onShowPricing }) {
-  if (!isPro) return null;
+function AltSourcingRow({ item }) {
   const alts = getAlternatives(item.country, item.category);
   if (!alts.length) return null;
-
   return (
     <div className="alt-row">
       <div className="alt-row-header">
@@ -100,9 +169,10 @@ function AltSourcingRow({ item, isPro, onShowPricing }) {
   );
 }
 
-export default function ResultsView({ items, isPro, onAddMore, onShowPricing, onBack }) {
+// ── Main component ─────────────────────────────────────────────────────────
+
+export default function ResultsView({ project, items, isPro, onAddMore, onShowPricing, onBack }) {
   const { calculated, totalBase, totalTariff, totalLanded, exposurePct, overallRisk } = calcTotals(items);
-  const [showAlt, setShowAlt] = useState(false);
 
   if (!items.length) {
     return (
@@ -121,42 +191,28 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
         <div className="view-header">
           <button className="back-link" onClick={onBack}>← Edit BOM</button>
           <div>
-            <h1 className="view-title">Tariff Impact Analysis</h1>
-            <p className="view-sub">Based on {items.length} part{items.length !== 1 ? 's' : ''} · Rates as of May 2025</p>
+            <h1 className="view-title">{project?.name ?? 'Tariff Impact Analysis'}</h1>
+            <p className="view-sub">{items.length} part{items.length !== 1 ? 's' : ''} · Rates as of May 2025</p>
           </div>
           <div className="header-actions">
             <button className="btn btn-secondary" onClick={onAddMore}>Add Parts</button>
+            <ShareButton items={items} isPro={isPro} onShowPricing={onShowPricing} />
             {isPro ? (
               <>
                 <button className="btn btn-outline" onClick={() => alert('PDF export — coming soon!')}>Export PDF</button>
                 <button className="btn btn-outline" onClick={() => alert('CSV export — coming soon!')}>Export CSV</button>
               </>
             ) : (
-              <button className="btn btn-outline" onClick={() => onShowPricing('feature')}>
-                🔒 Export
-              </button>
+              <button className="btn btn-outline" onClick={() => onShowPricing('feature')}>🔒 Export</button>
             )}
           </div>
         </div>
 
         {/* Summary cards */}
         <div className="summary-grid">
-          <SummaryCard
-            label="Pre-Tariff Annual Cost"
-            value={fmt.compact(totalBase)}
-            sub={`${fmt.currency(totalBase / items.length)} avg per part`}
-          />
-          <SummaryCard
-            label="Annual Tariff Exposure"
-            value={fmt.compact(totalTariff)}
-            sub={`${fmt.pct(exposurePct)} of COGS`}
-            accent={overallRisk}
-          />
-          <SummaryCard
-            label="Total Landed Cost"
-            value={fmt.compact(totalLanded)}
-            sub={`${fmt.pct(exposurePct > 0 ? ((totalLanded / totalBase) - 1) * 100 : 0)} above pre-tariff`}
-          />
+          <SummaryCard label="Pre-Tariff Annual Cost" value={fmt.compact(totalBase)} sub={`${fmt.currency(totalBase / items.length)} avg per part`} />
+          <SummaryCard label="Annual Tariff Exposure" value={fmt.compact(totalTariff)} sub={`${fmt.pct(exposurePct)} of COGS`} accent={overallRisk} />
+          <SummaryCard label="Total Landed Cost" value={fmt.compact(totalLanded)} sub={`${fmt.pct(exposurePct > 0 ? ((totalLanded / totalBase) - 1) * 100 : 0)} above pre-tariff`} />
         </div>
 
         {/* Risk gauge */}
@@ -171,11 +227,18 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
           <RiskMeter pct={exposurePct} risk={overallRisk} />
           <p className="risk-note">
             Tariffs represent <strong>{fmt.pct(exposurePct)}</strong> of your pre-tariff cost of goods.
-            {overallRisk === 'high' && ' This is a significant exposure — consider reviewing your sourcing strategy.'}
+            {overallRisk === 'high'   && ' This is significant — consider reviewing your sourcing strategy.'}
             {overallRisk === 'medium' && ' This is a moderate exposure worth monitoring.'}
-            {overallRisk === 'low' && ' Your tariff exposure is relatively low.'}
-            {overallRisk === 'none' && ' No tariff exposure detected on these parts.'}
+            {overallRisk === 'low'    && ' Your tariff exposure is relatively low.'}
+            {overallRisk === 'none'   && ' No tariff exposure detected on these parts.'}
           </p>
+        </div>
+
+        {/* Tariff Change Alerts */}
+        <div className="results-section">
+          <h2 className="section-heading">Tariff Rate Change Alerts</h2>
+          <p className="section-sub">Rate changes on your tracked parts since October 2024.</p>
+          <AlertsPanel items={calculated} isPro={isPro} onShowPricing={onShowPricing} />
         </div>
 
         {/* Line item breakdown */}
@@ -219,9 +282,7 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
               <tfoot>
                 <tr className="table-total">
                   <td colSpan={4}><strong>Total</strong></td>
-                  <td />
-                  <td />
-                  <td />
+                  <td /><td /><td />
                   <td><strong>{fmt.compact(totalTariff)}</strong></td>
                   <td><RiskBadge risk={overallRisk} /></td>
                 </tr>
@@ -234,18 +295,11 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
         <div className="results-section">
           <h2 className="section-heading">What-If Scenario Analysis</h2>
           <p className="section-sub">Estimate savings by switching supplier countries for each part.</p>
-
           {isPro ? (
             <div className="table-wrapper">
               <table className="results-table whatif-table">
                 <thead>
-                  <tr>
-                    <th>Part</th>
-                    <th>Switch Source To</th>
-                    <th>Current Tariff</th>
-                    <th>New Tariff</th>
-                    <th>Savings</th>
-                  </tr>
+                  <tr><th>Part</th><th>Switch Source To</th><th>Current Tariff</th><th>New Tariff</th><th>Savings</th></tr>
                 </thead>
                 <tbody>
                   {calculated.map(item => (
@@ -259,13 +313,7 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
               <div className="table-wrapper">
                 <table className="results-table whatif-table">
                   <thead>
-                    <tr>
-                      <th>Part</th>
-                      <th>Switch Source To</th>
-                      <th>Current Tariff</th>
-                      <th>New Tariff</th>
-                      <th>Savings</th>
-                    </tr>
+                    <tr><th>Part</th><th>Switch Source To</th><th>Current Tariff</th><th>New Tariff</th><th>Savings</th></tr>
                   </thead>
                   <tbody>
                     {calculated.map(item => (
@@ -288,26 +336,20 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
         <div className="results-section">
           <h2 className="section-heading">Alternative Sourcing Recommendations</h2>
           <p className="section-sub">Lower-tariff countries for each part based on current rates.</p>
-
           {isPro ? (
             <div className="alt-sourcing-list">
-              {calculated.map(item => (
-                <AltSourcingRow key={item.id} item={item} isPro={isPro} onShowPricing={onShowPricing} />
-              ))}
+              {calculated.map(item => <AltSourcingRow key={item.id} item={item} />)}
             </div>
           ) : (
             <LockedFeature onUnlock={() => onShowPricing('feature')} label="Unlock Sourcing Recommendations">
               <div className="alt-sourcing-list alt-sourcing-placeholder">
                 {calculated.map(item => (
                   <div key={item.id} className="alt-row">
-                    <div className="alt-row-header">
-                      <strong>{item.partName}</strong>
-                    </div>
+                    <div className="alt-row-header"><strong>{item.partName}</strong></div>
                     <div className="alt-chips">
                       {[1, 2, 3].map(i => (
                         <div key={i} className="alt-chip alt-chip-placeholder">
-                          <span>— Country</span>
-                          <span className="alt-chip-rate">—%</span>
+                          <span>— Country</span><span className="alt-chip-rate">—%</span>
                         </div>
                       ))}
                     </div>
@@ -318,7 +360,7 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
           )}
         </div>
 
-        {/* Export section */}
+        {/* Export */}
         {!isPro && (
           <div className="results-section">
             <LockedFeature onUnlock={() => onShowPricing('feature')} label="Unlock PDF & CSV Export">
@@ -331,7 +373,6 @@ export default function ResultsView({ items, isPro, onAddMore, onShowPricing, on
           </div>
         )}
 
-        {/* Disclaimer */}
         <div className="results-disclaimer">
           ⚠️ Rates are approximate estimates based on publicly available data (May 2025). Verify with
           official CBP/USITC sources before making sourcing or purchasing decisions.
