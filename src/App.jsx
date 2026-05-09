@@ -4,6 +4,7 @@ import LandingView from './components/LandingView.jsx';
 import InputView from './components/InputView.jsx';
 import ResultsView from './components/ResultsView.jsx';
 import PricingModal from './components/PricingModal.jsx';
+import AdminView from './components/AdminView.jsx';
 
 export const FREE_ITEM_LIMIT = 3;
 export const FREE_PROJECT_LIMIT = 1;
@@ -43,6 +44,8 @@ function parseSharedHash() {
 }
 
 export default function App() {
+  const isAdmin = window.location.pathname === '/admin';
+
   const [projects, setProjects] = useState(loadProjects);
   const [activeId, setActiveId] = useState(() => loadProjects()[0]?.id ?? null);
   const [view, setView] = useState('landing');
@@ -137,6 +140,10 @@ export default function App() {
 
   function dismissImport() {
     setImportItems(null);
+  }
+
+  if (isAdmin) {
+    return <AdminView onExit={() => window.location.pathname !== '/' && (window.location.href = '/')} />;
   }
 
   return (

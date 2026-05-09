@@ -1,5 +1,7 @@
 import { useState } from 'react';
 
+const FORMSPREE_ID = import.meta.env.VITE_FORMSPREE_ID || null;
+
 const PLANS = [
   {
     name: 'Starter',
@@ -24,24 +26,53 @@ const PLANS = [
       'Everything in Starter',
       'What-if scenario modeling',
       'Tariff rate change alerts',
-      'Multi-project management',
+      'Shareable results links',
       'Priority support',
     ],
   },
 ];
 
 export default function PricingModal({ onClose, trigger }) {
-  const [email, setEmail] = useState('');
+  const [email, setEmail]       = useState('');
   const [submitted, setSubmitted] = useState(false);
+  const [loading, setLoading]   = useState(false);
+  const [formError, setFormError] = useState('');
 
-  function handleSubmit(e) {
+  async function handleSubmit(e) {
     e.preventDefault();
-    if (!email) return;
-    // Store locally for validation
+    if (!email || loading) return;
+    setLoading(true);
+    setFormError('');
+
+    // Always save locally so admin panel can show it
     try {
       const existing = JSON.parse(localStorage.getItem('tariffiq_waitlist') || '[]');
-      localStorage.setItem('tariffiq_waitlist', JSON.stringify([...existing, { email, ts: Date.now() }]));
+      localStorage.setItem('tariffiq_waitlist', JSON.stringify([
+        ...existing,
+        { email, ts: Date.now() },
+      ]));
     } catch {}
+
+    // Submit to Formspree if configured
+    if (FORMSPREE_ID) {
+      try {
+        const res = await fetch(`https://formspree.io/f/${FORMSPREE_ID}`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ email, _subject: 'TariffIQ Waitlist Signup' }),
+        });
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setFormError(data?.errors?.[0]?.message || 'Submission failed — try again.');
+          setLoading(false);
+          return;
+        }
+      } catch {
+        // Network error — local save already happened, still count as success
+      }
+    }
+
+    setLoading(false);
     setSubmitted(true);
   }
 
@@ -85,7 +116,9 @@ export default function PricingModal({ onClose, trigger }) {
         <div className="waitlist-section">
           <div className="waitlist-banner">
             <span className="waitlist-tag">Coming Soon</span>
-            <p className="waitlist-headline">Payments launching soon — join the waitlist to get early access and a 30-day free trial.</p>
+            <p className="waitlist-headline">
+              Payments launching soon — join the waitlist for early access and a 30-day free trial.
+            </p>
           </div>
 
           {submitted ? (
@@ -106,10 +139,12 @@ export default function PricingModal({ onClose, trigger }) {
                 onChange={e => setEmail(e.target.value)}
                 required
                 autoFocus
+                disabled={loading}
               />
-              <button type="submit" className="btn btn-primary">
-                Join Waitlist
+              <button type="submit" className="btn btn-primary" disabled={loading}>
+                {loading ? 'Joining…' : 'Join Waitlist'}
               </button>
+              {formError && <p className="waitlist-error">{formError}</p>}
             </form>
           )}
         </div>
